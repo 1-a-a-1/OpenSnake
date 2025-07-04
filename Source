@@ -1,1 +1,163 @@
+local term = require("term")
+local event = require("event")
+local computer = require("computer")
 
+-- Bind GPU for colors
+local gpu = term.gpu()
+
+-- Config
+local width, height = 20, 10
+
+-- Directions
+local directions = {
+  up = {x = 0, y = -1},
+  down = {x = 0, y = 1},
+  left = {x = -1, y = 0},
+  right = {x = 1, y = 0}
+}
+
+-- Helpers
+local function drawBorder()
+  gpu.setForeground(0xFFFFFF) -- white border
+  term.clear()
+  term.setCursor(1, 1)
+  term.write("+" .. string.rep("-", width) .. "+\n")
+  for y = 1, height do
+    term.write("|" .. string.rep(" ", width) .. "|\n")
+  end
+  term.write("+" .. string.rep("-", width) .. "+")
+end
+
+local function drawSnake(snake)
+  gpu.setForeground(0x00FF00) -- green
+  for _, segment in ipairs(snake) do
+    term.setCursor(segment.x + 1, segment.y + 1)
+    term.write("O")
+  end
+end
+
+local function drawFood(food)
+  if food then
+    gpu.setForeground(0xFF0000) -- red
+    term.setCursor(food.x + 1, food.y + 1)
+    term.write("Ó") -- U+00D3
+  end
+end
+
+local function spawnFood(snake)
+  while true do
+    local x = math.random(1, width)
+    local y = math.random(1, height)
+    local collides = false
+    for _, s in ipairs(snake) do
+      if s.x == x and s.y == y then
+        collides = true
+        break
+      end
+    end
+    if not collides then
+      return {x = x, y = y}
+    end
+  end
+end
+
+local function moveSnake(snake, dir, food)
+  local head = snake[1]
+  local newHead = {x = head.x + dir.x, y = head.y + dir.y}
+
+  -- Wall collision
+  if newHead.x < 1 or newHead.x > width or newHead.y < 1 or newHead.y > height then
+    return false
+  end
+
+  -- Self collision
+  for _, s in ipairs(snake) do
+    if s.x == newHead.x and s.y == newHead.y then
+      return false
+    end
+  end
+
+  table.insert(snake, 1, newHead)
+
+  if food and newHead.x == food.x and newHead.y == food.y then
+    return true, spawnFood(snake) -- Grow, respawn food
+  else
+    table.remove(snake) -- Move without growing
+    return true, food
+  end
+end
+
+local function handleKey(code, dir)
+  local keyMap = {
+    [200] = "up", [208] = "down",
+    [203] = "left", [205] = "right"
+  }
+  local newDir = keyMap[code]
+  if newDir then
+    if newDir == "up" and dir ~= directions.down then return directions.up
+    elseif newDir == "down" and dir ~= directions.up then return directions.down
+    elseif newDir == "left" and dir ~= directions.right then return directions.left
+    elseif newDir == "right" and dir ~= directions.left then return directions.right
+    end
+  end
+  return dir
+end
+
+::start::
+
+-- Init game state
+local snake = {
+  {x = math.floor(width / 2), y = math.floor(height / 2)}
+}
+local dir = directions.right
+local food = spawnFood(snake)
+local running = true
+
+drawBorder()
+drawFood(food)
+drawSnake(snake)
+
+-- Game loop
+while running do
+  gpu.setForeground(0xFFFFFF) -- white text for instructions
+  term.setCursor(1, height + 3)
+  term.clearLine()
+  term.write("Use arrow keys to move. Press Ctrl+C to exit.")
+
+  local _, _, _, code = event.pull("key_down")
+  dir = handleKey(code, dir)
+
+  local success, newFood = moveSnake(snake, dir, food)
+  if not success then
+    running = false
+    break
+  else
+    food = newFood
+  end
+
+  drawBorder()
+  drawFood(food)
+  drawSnake(snake)
+end
+
+-- Game Over
+gpu.setForeground(0xFFFFFF)
+term.setCursor(1, height + 4)
+term.clearLine()
+term.write("Game Over! Final length: " .. #snake)
+
+term.setCursor(1, height + 5)
+term.clearLine()
+term.write("Press Q to quit, or press R to play again!")
+
+while true do
+  local _, _, _, code = event.pull("key_down")
+  if code == 19 then -- R
+    goto start
+  elseif code == 16 then -- Q
+    term.setCursor(1, height + 6)
+    term.clearLine()
+    term.write("Goodbye!")
+    os.exit()
+  end
+end
